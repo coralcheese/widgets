@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Widgets</title>
+  <style>
+    :root {
+      --bg: #f7f7f5;
+      --surface: #ffffff;
+      --text: #1d1d1b;
+      --muted: #6b6b66;
+      --border: #e3e3de;
+      --accent: #2f6fde;
+      --chip: #eeeeea;
+      --chip-on-bg: #1d1d1b;
+      --chip-on-text: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #161615;
+        --surface: #1f1f1e;
+        --text: #ececea;
+        --muted: #9a9a94;
+        --border: #33332f;
+        --accent: #7aa7ff;
+        --chip: #2a2a28;
+        --chip-on-bg: #ececea;
+        --chip-on-text: #161615;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    }
+    main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { font-size: 22px; margin: 0 0 20px; letter-spacing: -0.01em; }
+    h1 small { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 6px; }
+
+    .controls { display: flex; gap: 8px; margin-bottom: 12px; }
+    .controls input, .controls select {
+      font: inherit; color: var(--text); background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+    }
+    .controls input { flex: 1; min-width: 0; }
+    .controls input:focus, .controls select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+    .tags button {
+      font: inherit; font-size: 13px; color: var(--text); background: var(--chip);
+      border: 0; border-radius: 999px; padding: 4px 12px; cursor: pointer;
+    }
+    .tags button[aria-pressed="true"] { background: var(--chip-on-bg); color: var(--chip-on-text); }
+
+    .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+    .card {
+      display: flex; flex-direction: column; gap: 6px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; color: inherit; text-decoration: none;
+    }
+    .card:hover { border-color: var(--accent); }
+    .card .title { font-weight: 600; }
+    .card .desc { color: var(--muted); font-size: 14px; }
+    .card .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; font-size: 12px; color: var(--muted); }
+    .card .meta span.tag { background: var(--chip); border-radius: 4px; padding: 1px 6px; }
+    .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Widgets <small id="count"></small></h1>
+
+    <div class="controls">
+      <input id="q" type="search" placeholder="제목·설명 검색" autocomplete="off">
+      <select id="sort" aria-label="정렬">
+        <option value="new">최신순</option>
+        <option value="old">오래된순</option>
+        <option value="title">제목순</option>
+      </select>
+    </div>
+    <div class="tags" id="tags"></div>
+    <div class="list" id="list"></div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = { pages: [], q: "", tag: null, sort: "new" };
+
+    const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    function renderTags() {
+      const all = [...new Set(state.pages.flatMap((p) => p.tags))].sort((a, b) => a.localeCompare(b, "ko"));
+      $("tags").innerHTML = ["전체", ...all]
+        .map((t, i) => {
+          const value = i === 0 ? "" : t;
+          const on = (state.tag ?? "") === value;
+          return `<button type="button" data-tag="${esc(value)}" aria-pressed="${on}">${esc(t)}</button>`;
+        })
+        .join("");
+    }
+
+    function renderList() {
+      const q = state.q.trim().toLowerCase();
+      let items = state.pages.filter((p) =>
+        (!state.tag || p.tags.includes(state.tag)) &&
+        (!q || (p.title + " " + p.description).toLowerCase().includes(q))
+      );
+      if (state.sort === "new") items.sort((a, b) => b.date.localeCompare(a.date));
+      if (state.sort === "old") items.sort((a, b) => (!a.date - !b.date) || a.date.localeCompare(b.date));
+      if (state.sort === "title") items.sort((a, b) => a.title.localeCompare(b.title, "ko"));
+
+      $("count").textContent = `${items.length} / ${state.pages.length}`;
+      $("list").innerHTML = items.length
+        ? items.map((p) => `
+            <a class="card" href="${encodeURI(p.path)}">
+              <div class="title">${esc(p.title)}</div>
+              ${p.description ? `<div class="desc">${esc(p.description)}</div>` : ""}
+              <div class="meta">
+                ${p.date ? `<span>${esc(p.date)}</span>` : ""}
+                ${p.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}
+              </div>
+            </a>`).join("")
+        : `<div class="empty">${state.pages.length ? "조건에 맞는 페이지가 없습니다." : "pages/ 폴더에 HTML 파일을 추가하세요."}</div>`;
+    }
+
+    $("q").addEventListener("input", (e) => { state.q = e.target.value; renderList(); });
+    $("sort").addEventListener("change", (e) => { state.sort = e.target.value; renderList(); });
+    $("tags").addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      state.tag = btn.dataset.tag || null;
+      renderTags();
+      renderList();
+    });
+
+    // GitHub Pages 주소(owner.github.io/repo)에서 레포를 알아내고, 로컬 미리보기에선 기본값을 쓴다.
+    const REPO = location.hostname.endsWith(".github.io")
+      ? `${location.hostname.split(".")[0]}/${location.pathname.split("/")[1]}`
+      : "coralcheese/widgets";
+    const BRANCH = "main";
+    const CACHE_KEY = "widgets:paths";
+    const CACHE_MS = 5 * 60 * 1000;
+
+    // pages/ 아래 html 경로 목록. 비로그인 API 한도(시간당 60회) 때문에 5분간 브라우저에 캐시한다.
+    async function listPaths() {
+      try {
+        const cached = JSON.parse(localStorage.getItem(CACHE_KEY));
+        if (cached && Date.now() - cached.at < CACHE_MS) return cached.paths;
+      } catch {}
+      const res = await fetch(`https://api.github.com/repos/${REPO}/git/trees/${BRANCH}?recursive=1`);
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+      const paths = (await res.json()).tree
+        .filter((t) => t.type === "blob" && t.path.startsWith("pages/") && t.path.endsWith(".html"))
+        .map((t) => t.path);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), paths })); } catch {}
+      return paths;
+    }
+
+    // 각 html의 <head>에서 title, description, tags, date를 읽는다.
+    async function readPage(path) {
+      const html = await fetch(encodeURI(path)).then((r) => (r.ok ? r.text() : ""));
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const meta = (name) => doc.querySelector(`meta[name="${name}"]`)?.getAttribute("content")?.trim() ?? "";
+      return {
+        path,
+        title: doc.title.trim() || path.split("/").pop().replace(/\.html$/, ""),
+        description: meta("description"),
+        tags: meta("tags").split(",").map((t) => t.trim()).filter(Boolean),
+        date: meta("date"),
+      };
+    }
+
+    listPaths()
+      .then((paths) => Promise.all(paths.map(readPage)))
+      .then((pages) => { state.pages = pages; renderTags(); renderList(); })
+      .catch((err) => {
+        $("list").innerHTML = `<div class="empty">목록을 불러오지 못했습니다. (${esc(err.message)})<br>잠시 후 새로고침하세요.</div>`;
+      });
+  </script>
+</body>
+</html>
