@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>투명 배경 → 흰색 배경</title>
+<meta name="description" content="투명 배경 이미지를 원본 해상도 그대로 흰 배경 PNG로 변환 (여러 장 가능)">
+<meta name="tags" content="이미지">
+<meta name="date" content="2026-11-01">
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; color: #222; }
+  #drop { border: 2px dashed #999; border-radius: 12px; padding: 40px 16px; text-align: center; cursor: pointer; }
+  #drop.over { background: #f0f6ff; border-color: #3b82f6; }
+  #list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-top: 24px; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 10px; }
+  .card img { width: 100%; height: 200px; object-fit: contain; display: block; background: #fff; }
+  .meta { font-size: 12px; color: #666; margin: 8px 0; word-break: break-all; }
+  .card a { display: inline-block; padding: 6px 12px; background: #2563eb; color: #fff; border-radius: 6px; text-decoration: none; font-size: 14px; }
+</style>
+</head>
+<body>
+  <h2>투명 배경 이미지 → 흰색 배경</h2>
+  <div id="drop">이미지를 끌어다 놓거나, 클릭해서 선택하거나, 붙여넣기(Ctrl+V) 하세요 (여러 장 가능)</div>
+  <input id="file" type="file" accept="image/*" multiple hidden>
+  <div id="list"></div>
+
+<script>
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file');
+const list = document.getElementById('list');
+
+drop.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => handle(e.target.files));
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); handle(e.dataTransfer.files); });
+document.addEventListener('paste', e => handle(e.clipboardData.files));
+
+async function handle(files) {
+  for (const f of files) {
+    if (f.type.startsWith('image/')) await process(f);
+  }
+  fileInput.value = '';
+}
+
+async function process(file) {
+  // 원본 해상도 그대로 디코딩 (리사이즈 없음)
+  const bmp = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = bmp.width;
+  canvas.height = bmp.height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bmp, 0, 0); // 1:1 픽셀 합성
+  bmp.close();
+
+  // PNG = 무손실
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  const url = URL.createObjectURL(blob);
+  const base = file.name.replace(/\.[^.]+$/, '');
+
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <img src="${url}" alt="">
+    <div class="meta">${file.name}<br>${canvas.width} × ${canvas.height}px</div>
+    <a href="${url}" download="${base}_white.png">PNG 다운로드</a>`;
+  list.prepend(card);
+}
+</script>
+</body>
+</html>
