@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이미지 크롭</title>
+<meta name="description" content="입력한 픽셀 크기의 크롭 박스로 원본 픽셀 그대로 잘라 PNG로 저장하는 이미지 크롭 도구">
+<meta name="tags" content="이미지, 크롭, PNG">
+<meta name="date" content="2026-11-01">
+<style>
+  :root {
+    --bg: #f4f4f2; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70;
+    --line: #dcdcd8; --accent: #2f6fed; --warn: #b4540a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #18181a; --panel: #232326; --text: #ececee; --muted: #9a9aa2; --line: #38383d; --accent: #5b8dff; --warn: #f0a050; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+           display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  label { display: inline-flex; align-items: center; gap: 6px; }
+  input[type=number] { width: 90px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+                       background: var(--bg); color: var(--text); font: inherit; }
+  button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+           color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .info { margin-top: 10px; color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  .info b { color: var(--text); font-weight: 600; }
+  .warn { color: var(--warn); }
+  #drop { margin-top: 12px; border: 2px dashed var(--line); border-radius: 10px; min-height: 260px;
+          display: flex; align-items: center; justify-content: center; padding: 12px; position: relative; }
+  #drop.over { border-color: var(--accent); }
+  #placeholder { color: var(--muted); text-align: center; }
+  #stage { position: relative; display: none; overflow: hidden; touch-action: none; user-select: none; line-height: 0; }
+  #stage img { display: block; pointer-events: none; }
+  #box { position: absolute; outline: 1px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 0 0 99999px rgba(0,0,0,.5);
+         cursor: move; touch-action: none; }
+  #box::before, #box::after { content: ""; position: absolute; border: 0 dashed rgba(255,255,255,.55); pointer-events: none; }
+  #box::before { left: 33.333%; right: 33.333%; top: 0; bottom: 0; border-left-width: 1px; border-right-width: 1px; }
+  #box::after  { top: 33.333%; bottom: 33.333%; left: 0; right: 0; border-top-width: 1px; border-bottom-width: 1px; }
+  .h { position: absolute; width: 14px; height: 14px; background: #fff; border: 1px solid #333; border-radius: 2px; z-index: 2; }
+  .h.nw { left: -7px; top: -7px; cursor: nwse-resize; }
+  .h.ne { right: -7px; top: -7px; cursor: nesw-resize; }
+  .h.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+  .h.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+  .hint { margin-top: 8px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>이미지 크롭</h1>
+
+  <div class="panel">
+    <button id="pick">이미지 열기</button>
+    <input id="file" type="file" accept="image/*" hidden>
+    <label>가로 <input id="inW" type="number" min="1" step="1" value="1080"> px</label>
+    <label>세로 <input id="inH" type="number" min="1" step="1" value="1080"> px</label>
+    <button id="apply">적용</button>
+    <label><input id="reset" type="checkbox"> 입력한 사이즈로 되돌리기</label>
+    <button id="save" class="primary" disabled>PNG로 저장</button>
+  </div>
+
+  <div class="info">
+    <span>원본: <b id="iOrig">-</b></span>
+    <span>크롭 박스(저장 크기): <b id="iBox">-</b></span>
+    <span>입력 대비: <b id="iPct">-</b></span>
+    <span>위치: <b id="iPos">-</b></span>
+    <span id="iWarn" class="warn"></span>
+  </div>
+
+  <div id="drop">
+    <div id="placeholder">이미지를 여기로 끌어다 놓거나, 붙여넣기(Ctrl/⌘+V) 하거나, “이미지 열기”를 누르세요.</div>
+    <div id="stage">
+      <img id="img" alt="">
+      <div id="box">
+        <div class="h nw" data-c="nw"></div><div class="h ne" data-c="ne"></div>
+        <div class="h sw" data-c="sw"></div><div class="h se" data-c="se"></div>
+      </div>
+    </div>
+  </div>
+  <div class="hint">박스 안을 드래그하면 이동, 모서리를 드래그하면 비율을 유지한 채 크기 조절. 방향키로 1px 이동(Shift: 10px).
+    저장은 원본 픽셀을 리샘플링 없이 그대로 잘라 PNG(무손실)로 저장합니다.</div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const fileEl = $('file'), img = $('img'), stage = $('stage'), box = $('box'), drop = $('drop');
+  const inW = $('inW'), inH = $('inH'), resetCb = $('reset'), saveBtn = $('save');
+
+  let natW = 0, natH = 0, fileName = 'image';
+  let tgtW = 0, tgtH = 0, ratio = 1;      // 입력 사이즈와 비율
+  let b = { x: 0, y: 0, w: 0, h: 0 };    // 크롭 박스 (원본 픽셀 단위, 정수)
+  let scale = 1;                         // 화면 표시 배율
+
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+  // ---------- 이미지 불러오기 ----------
+  function loadFile(f) {
+    if (!f || !f.type.startsWith('image/')) return;
+    fileName = (f.name || 'image').replace(/\.[^.]+$/, '');
+    const url = URL.createObjectURL(f);
+    const tmp = new Image();
+    tmp.onload = () => {
+      if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+      img.src = url;
+      natW = tmp.naturalWidth; natH = tmp.naturalHeight;
+      $('placeholder').style.display = 'none';
+      stage.style.display = 'block';
+      saveBtn.disabled = false;
+      layout();
+      applyInput(true);
+    };
+    tmp.onerror = () => { URL.revokeObjectURL(url); alert('이미지를 열 수 없습니다.'); };
+    tmp.src = url;
+  }
+  $('pick').onclick = () => fileEl.click();
+  fileEl.onchange = () => { loadFile(fileEl.files[0]); fileEl.value = ''; };
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); loadFile(e.dataTransfer.files[0]); });
+  window.addEventListener('paste', e => {
+    const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+    if (it) loadFile(it.getAsFile());
+  });
+
+  // ---------- 화면 배치 ----------
+  function layout() {
+    if (!natW) return;
+    const maxW = drop.clientWidth - 28;
+    const maxH = Math.max(240, window.innerHeight - drop.getBoundingClientRect().top - 60);
+    scale = Math.min(maxW / natW, maxH / natH, 1);
+    img.style.width = natW * scale + 'px';
+    img.style.height = natH * scale + 'px';
+    render();
+  }
+  window.addEventListener('resize', layout);
+
+  function render() {
+    box.style.left = b.x * scale + 'px';
+    box.style.top = b.y * scale + 'px';
+    box.style.width = b.w * scale + 'px';
+    box.style.height = b.h * scale + 'px';
+    $('iOrig').textContent = natW ? `${natW} × ${natH}` : '-';
+    $('iBox').textContent = b.w ? `${b.w} × ${b.h}` : '-';
+    $('iPct').textContent = b.w && tgtW ? (b.w / tgtW * 100).toFixed(1) + '%' : '-';
+    $('iPos').textContent = b.w ? `x ${b.x}, y ${b.y}` : '-';
+  }
+
+  // ---------- 입력 사이즈 적용 ----------
+  function readInput() {
+    const w = Math.round(+inW.value), h = Math.round(+inH.value);
+    if (!(w >= 1 && h >= 1)) { alert('가로·세로를 1 이상의 정수로 입력하세요.'); return false; }
+    tgtW = w; tgtH = h; ratio = w / h;
+    return true;
+  }
+
+  // 입력 사이즈로 박스를 만든다. center=true면 이미지 중앙, 아니면 현재 박스 중심 유지
+  function applyInput(center) {
+    if (!natW || !readInput()) return;
+    let w = tgtW, h = tgtH;
+    const warn = $('iWarn');
+    if (w > natW || h > natH) {
+      // 이미지보다 크면 같은 비율로 이미지 안에 맞춤
+      const s = Math.min(natW / w, natH / h);
+      w = Math.max(1, Math.floor(w * s)); h = Math.max(1, Math.min(natH, Math.round(w / ratio)));
+      warn.textContent = `입력 사이즈가 원본보다 커서 같은 비율로 ${w} × ${h}에 맞췄습니다.`;
+    } else warn.textContent = '';
+    const cx = center || !b.w ? natW / 2 : b.x + b.w / 2;
+    const cy = center || !b.w ? natH / 2 : b.y + b.h / 2;
+    b = { w, h, x: clamp(Math.round(cx - w / 2), 0, natW - w), y: clamp(Math.round(cy - h / 2), 0, natH - h) };
+    render();
+  }
+  $('apply').onclick = () => { applyInput(true); resetCb.checked = false; };
+  [inW, inH].forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') $('apply').click(); }));
+
+  // 체크하면 입력 사이즈로 한 번 리셋 (이후 크기를 조절하면 자동으로 체크 해제)
+  resetCb.onchange = () => { if (resetCb.checked) applyInput(false); };
+
+  // ---------- 드래그 (이동 / 크기 조절) ----------
+  function toImg(e) {
+    const r = img.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
+  }
+
+  let drag = null;
+  box.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    box.setPointerCapture(e.pointerId);
+    const p = toImg(e), c = e.target.dataset.c;
+    if (c) {
+      const dx = c.includes('w') ? -1 : 1, dy = c.includes('n') ? -1 : 1;
+      drag = { mode: 'resize', dx, dy,
+               ax: dx > 0 ? b.x : b.x + b.w,   // 반대쪽 모서리 고정
+               ay: dy > 0 ? b.y : b.y + b.h };
+    } else {
+      drag = { mode: 'move', ox: p.x - b.x, oy: p.y - b.y };
+    }
+  });
+  box.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const p = toImg(e);
+    if (drag.mode === 'move') {
+      b.x = clamp(Math.round(p.x - drag.ox), 0, natW - b.w);
+      b.y = clamp(Math.round(p.y - drag.oy), 0, natH - b.h);
+    } else {
+      const { ax, ay, dx, dy } = drag;
+      const spaceX = dx > 0 ? natW - ax : ax;
+      const spaceY = dy > 0 ? natH - ay : ay;
+      let w = Math.max((p.x - ax) * dx, (p.y - ay) * dy * ratio);
+      w = clamp(Math.round(w), 1, Math.max(1, Math.floor(Math.min(spaceX, spaceY * ratio))));
+      let h = clamp(Math.round(w / ratio), 1, spaceY);
+      b.w = w; b.h = h;
+      b.x = dx > 0 ? ax : ax - w;
+      b.y = dy > 0 ? ay : ay - h;
+      if (resetCb.checked) resetCb.checked = false;
+    }
+    render();
+  });
+  const end = () => { drag = null; };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+
+  window.addEventListener('keydown', e => {
+    if (!natW || e.target.tagName === 'INPUT') return;
+    const step = e.shiftKey ? 10 : 1;
+    const m = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (!m) return;
+    e.preventDefault();
+    b.x = clamp(b.x + m[0], 0, natW - b.w);
+    b.y = clamp(b.y + m[1], 0, natH - b.h);
+    render();
+  });
+
+  // ---------- 저장 (원본 픽셀 1:1, PNG 무손실) ----------
+  saveBtn.onclick = () => {
+    if (!natW || !b.w) return;
+    const cv = document.createElement('canvas');
+    cv.width = b.w; cv.height = b.h;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    // 소스와 대상 크기가 동일 → 리샘플링 없이 픽셀 그대로 복사
+    ctx.drawImage(img, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+    cv.toBlob(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${fileName}_crop_${b.w}x${b.h}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }, 'image/png');
+  };
+})();
+</script>
+</body>
+</html>
