@@ -1,4 +1,4 @@
-# Widgets
+# Widgets 
 
 직접 만든 HTML 페이지들을 모아두는 정적 사이트. `main`에 push하면 GitHub Pages(Deploy from branch)로 배포된다.
 
